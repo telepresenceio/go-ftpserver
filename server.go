@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"os"
 	"sync"
@@ -13,7 +14,7 @@ import (
 	ftp "github.com/fclairamb/ftpserverlib"
 	"github.com/spf13/afero"
 
-	"github.com/telepresenceio/dlib/v2/dlog"
+	"github.com/telepresenceio/clog"
 )
 
 type user struct {
@@ -36,7 +37,7 @@ type client struct {
 
 // GetHandle implements ftpserver.ClientDriverExtentionFileTransfer
 func (c *client) GetHandle(name string, flags int, offset int64) (ftp.FileTransfer, error) {
-	dlog.Debugf(c.ctx, "GetHandle(%s, %#x, %d)", name, flags, offset)
+	clog.Debugf(c.ctx, "GetHandle(%s, %#x, %d)", name, flags, offset)
 	f, err := c.OpenFile(name, flags, 0600)
 	if err != nil {
 		return nil, err
@@ -77,7 +78,7 @@ func newDriver(ctx context.Context, publicHost string, users map[string]*user, p
 			IdleTimeout:         300,
 		}}
 
-	dlog.Infof(ctx, "FTP server listening on %s", d.ListenAddr)
+	clog.Infof(ctx, "FTP server listening on %s", d.ListenAddr)
 	if portAnnounceCh != nil {
 		portAnnounceCh <- uint16(a.Port)
 	}
@@ -100,8 +101,8 @@ func (d *driver) ClientConnected(cc ftp.ClientContext) (string, error) {
 		d.clients = append(d.clients, cc)
 	}
 	d.Unlock()
-	dlog.Infof(d.ctx, "Client connected, id %d, remoteAddr %s", cc.ID(), cc.RemoteAddr())
-	cc.SetDebug(dlog.MaxLogLevel(d.ctx) >= dlog.LogLevelDebug)
+	clog.Infof(d.ctx, "Client connected, id %d, remoteAddr %s", cc.ID(), cc.RemoteAddr())
+	cc.SetDebug(clog.Enabled(d.ctx, slog.LevelDebug))
 	return "telepresence", nil
 }
 
@@ -114,7 +115,7 @@ func (d *driver) ClientDisconnected(cc ftp.ClientContext) {
 		}
 	}
 	d.Unlock()
-	dlog.Infof(d.ctx, "Client disconnected, id %d, remoteAddr %s", cc.ID(), cc.RemoteAddr())
+	clog.Infof(d.ctx, "Client disconnected, id %d, remoteAddr %s", cc.ID(), cc.RemoteAddr())
 }
 
 func (d *driver) AuthUser(ctx ftp.ClientContext, userName, password string) (ftp.ClientDriver, error) {
@@ -154,10 +155,10 @@ func start(ctx context.Context, publicHost string, basePath string, port uint16,
 		return err
 	}
 	s := ftp.NewFtpServer(d)
-	s.Logger = Logger(ctx)
+	s.Logger = clog.Logger(ctx)
 	go func() {
 		<-ctx.Done()
-		dlog.Infof(ctx, "Stopping FTP server")
+		clog.Info(ctx, "Stopping FTP server")
 		d.Lock()
 		for _, c := range d.clients {
 			if c != nil {
@@ -167,9 +168,9 @@ func start(ctx context.Context, publicHost string, basePath string, port uint16,
 		d.clients = nil
 		d.Unlock()
 		if err := s.Stop(); err != nil {
-			dlog.Errorf(ctx, "failed to stop ftp server: %v", err)
+			clog.Errorf(ctx, "failed to stop ftp server: %v", err)
 		}
 	}()
-	dlog.Infof(ctx, "Starting FTP server")
+	clog.Info(ctx, "Starting FTP server")
 	return s.ListenAndServe()
 }
